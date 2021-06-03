@@ -1,0 +1,174 @@
+<?xml version="1.0" ?><simulation xmds-version="2">
+  <name>org-pol-lat</name>
+  <author>Thomas Sturges</author>
+
+  <features>
+    <validation kind="run-time"/>
+    <globals>
+      <![CDATA[
+      real Kron(int m, int n) {
+        return (m == n) ? 1 : 0;
+      }
+      ]]>
+    </globals>
+    <arguments>
+        <argument name="gammaR" type="real" default_value="0.7"/>
+        <argument name="gammaC" type="real" default_value="4"/>
+        <argument name="gammaV" type="real" default_value="2.9"/>
+        <argument name="P0" type="real" default_value="30."/>
+        <argument name="g" type="real" default_value="0.5"/>
+        <argument name="omegaR" type="real" default_value="2720"/>
+        <argument name="omegaC" type="real" default_value="2526"/>
+        <argument name="omegaV" type="real" default_value="194"/>
+        <argument name="Omega0" type="real" default_value="33"/>
+        <argument name="OmegaDiff" type="real" default_value="7"/>
+        <argument name="M" type="int" default_value="40"/>
+        <argument name="sigmaOmega" type="real" default_value="0 * Omega0"/>
+        <argument name="sigmadelta" type="real" default_value="0* Omega0"/>
+        <argument name="Gamma" type="real" default_value="gammaR + gammaC + gammaV"/>
+        <argument name="hbar" type="real" default_value="0.6582"/>
+    </arguments>
+  </features>
+  
+  <geometry>
+    <propagation_dimension> t </propagation_dimension>
+    <transverse_dimensions>
+      <dimension name="m" type="integer" lattice="M" domain="(1,M)"/>
+      <dimension name="n" type="integer" lattice="M" domain="(1,M)"/>
+    </transverse_dimensions>
+  </geometry>
+  
+  <vector name="variables" type="complex">
+    <components>
+      rho NR J
+    </components>
+    <initialisation>
+      <![CDATA[
+      rho(m => m, n => n) = 0.;
+      NR(m => m) = 0.;
+      J(m => m, n => n) = 0.;
+      ]]>
+    </initialisation>
+  </vector>
+
+  <noise_vector name="TheOmegaNoise" dimensions="m n" kind="gauss" type="real" method="posix">
+    <components>OmegaNoise</components>
+  </noise_vector>
+
+  <noise_vector name="OnSiteNoise" dimensions="m" kind="gauss" type="real" method="posix">
+    <components>onsiteNoise</components>
+  </noise_vector>
+
+  <vector name="OmegaVec" type="real">
+    <components>
+      Omega
+    </components>
+    <initialisation>
+      <dependencies>TheOmegaNoise</dependencies>
+      <![CDATA[
+      Omega(m => m, n => n) = (abs(m - n) == 1) ? Omega0 - OmegaDiff * pow(-1, max(m,n)) + (sigmaOmega / sqrt(2)) * (OmegaNoise(m => m, n => n) + OmegaNoise(m => n, n => m)): 0;
+      ]]>
+    </initialisation>
+  </vector>
+
+  <vector name="deltaVec" type="real">
+    <components>
+      delta
+    </components>
+    <initialisation>
+      <dependencies>OnSiteNoise</dependencies>
+      <![CDATA[
+      delta(m => m) = omegaR - (omegaC + sigmadelta * onsiteNoise(m => m) + omegaV);
+      ]]>
+    </initialisation>
+  </vector>
+
+  <sequence>
+    <integrate algorithm="RK4" interval="5" tolerance="1.0e-15" steps="50000">
+      <samples>200</samples>
+      <operators>
+        <integration_vectors>variables</integration_vectors>
+        <![CDATA[
+        complex sum1 = 0.;
+        complex sum2 = 0.;
+        complex rhomn = rho(m => m, n => n);
+        complex rhonm = rho(m => n, n => m);
+        complex rhomm = rho(m => m, n => m);
+        complex Jmn = J(m => m, n => n);
+        complex Jnm = J(m => n, n => m);
+        complex Jmm = J(m => m, n => m);
+        complex NRm = NR(m => m);
+        complex NRn = NR(m => n);
+        real pump = (m == M / 2) ? P0 : 0;
+        for (int i = 1; i <= M; ++i) {
+          real Omi = Omega(m => m, n => i);
+          real Oni = Omega(m => n, n => i);
+          sum1 += Omi * conj(rho(m => n, n => i)) - Oni * rho(m => m, n => i);
+          sum2 += Oni * J(m => m, n => i);
+        }
+        drho_dt(m => m, n => n) = (1 / hbar) * (-gammaC * rhomn + i * g * (conj(Jmn) - Jnm) + i * sum1);
+        dNR_dt(m => m) = (1 / hbar) * (-gammaR * NRm + pump - i * g * (conj(Jmm) - Jmm));
+        dJ_dt(m => m, n => n) = (1 / hbar) * (-(i * delta(m => n) + Gamma / 2) * Jmn + i * g * NRm * (Kron(m,n) + rhonm) + i * sum2);
+        ]]>
+        <dependencies>OmegaVec deltaVec</dependencies>
+      </operators>
+    </integrate>
+  </sequence>
+  
+  <output format="hdf5" filename="org-pol-lat">
+      <sampling_group basis="m n" initial_sample="yes">
+        <moments>rhoReOut</moments>
+        <dependencies>variables</dependencies>
+        <![CDATA[
+          rhoReOut = rho.Re();
+        ]]>
+      </sampling_group>
+  </output>
+
+<info>
+Script compiled with XMDS2 version 3.0.0 "Release the Kraken" (r3117)
+See http://www.xmds.org for more information.
+
+Variables that can be specified on the command line:
+  Command line argument gammaR = 7.000000e-01
+  Command line argument gammaC = 4.000000e+00
+  Command line argument gammaV = 2.900000e+00
+  Command line argument P0 = 3.000000e+01
+  Command line argument g = 5.000000e-01
+  Command line argument omegaR = 2.720000e+03
+  Command line argument omegaC = 2.526000e+03
+  Command line argument omegaV = 1.940000e+02
+  Command line argument Omega0 = 3.300000e+01
+  Command line argument OmegaDiff = 7.000000e+00
+  Command line argument M = 40
+  Command line argument sigmaOmega = 0.000000e+00
+  Command line argument sigmadelta = 0.000000e+00
+  Command line argument Gamma = 7.600000e+00
+  Command line argument hbar = 6.582000e-01
+
+No seeds were provided for noise vector 'TheOmegaNoise'. The seeds generated were:
+    2570005446, 2254386878, 334376485, 1319906265, 1484772255, 3534834119, 4252582295, 47818496, 3129637953, 1807750559
+
+No seeds were provided for noise vector 'OnSiteNoise'. The seeds generated were:
+    3627554974, 2401908067, 3172530773, 3755040941, 1663776910, 774920895, 2530083932, 780209440, 4188926766, 1704578708
+</info>
+
+<XSIL Name="moment_group_1">
+  <Param Name="n_independent">3</Param>
+  <Array Name="variables" Type="Text">
+    <Dim>4</Dim>
+    <Stream><Metalink Format="Text" Delimiter=" \n"/>
+t m n rhoReOut 
+    </Stream>
+  </Array>
+  <Array Name="data" Type="double">
+    <Dim>201</Dim>
+    <Dim>40</Dim>
+    <Dim>40</Dim>
+    <Dim>4</Dim>
+    <Stream><Metalink Format="HDF5" Type="Remote" Group="/1"/>
+org-pol-lat.h5
+    </Stream>
+  </Array>
+</XSIL>
+</simulation>
